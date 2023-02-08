@@ -92,7 +92,8 @@ function getBranchNames(cwd: string): Promise<string[]> {
   return gitCommand('branch', cwd).then(result => {
     const branchNames = result
       .split('\n')
-      .map(item => (item.indexOf('*') === 0 ? item.substring(2).trim() : item.trim()));
+      .map(item => (item.indexOf('*') === 0 ? item.substring(2).trim() : item.trim()))
+      .filter(Boolean);
 
     return branchNames;
   });
