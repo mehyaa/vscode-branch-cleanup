@@ -1,0 +1,62 @@
+{
+  "name": "branch-cleanup",
+  "displayName": "Branch Cleanup",
+  "version": "1.0.0",
+  "description": "Remove all feature branches easily",
+  "icon": "img/icon.png",
+  "publisher": "mehyaa",
+  "license": "MIT",
+  "homepage": "https://github.com/mehyaa/vscode-branch-cleaner",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mehyaa/vscode-branch-cleaner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mehyaa/vscode-branch-cleaner/issues"
+  },
+  "main": "dist/extension.js",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "dist/*",
+    "img/*"
+  ],
+  "engines": {
+    "vscode": "^1.0.0"
+  },
+  "activationEvents": [
+    "onCommand:branch-cleanup.run"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "branch-cleanup.run",
+        "title": "Branches: Cleanup"
+      }
+    ]
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "scripts": {
+    "clean": "rimraf dist",
+    "compile": "npm run clean && tsc",
+    "watch": "npm run clean && tsc --watch",
+    "vscode:prepublish": "npm run compile",
+    "lint": "eslint --ext ts src",
+    "postinstall": "vscode-install"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "18.13.0",
+    "@typescript-eslint/eslint-plugin": "^5.51.0",
+    "@typescript-eslint/parser": "^5.51.0",
+    "eslint": "^8.33.0",
+    "typescript": "^4.9.5",
+    "vscode": "^1.1.37"
+  }
+}

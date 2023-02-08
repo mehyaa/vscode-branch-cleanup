@@ -1,0 +1,82 @@
+name: Build & Push Package
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+  repository_dispatch:
+
+jobs:
+  linux:
+    name: Build & Push Package
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout files
+        uses: actions/checkout@v2
+
+      - name: Install Package Dependencies
+        run: npm ci
+
+      - name: Set Package Name to Environment Variable
+        run: echo "PACKAGE_NAME=$(npm run env | grep "npm_package_name" | awk -F "=" '{print $2}')" >> $GITHUB_ENV
+
+      - name: Set Package Version to Environment Variable
+        run: echo "PACKAGE_VERSION=$(npm run env | grep "npm_package_version" | awk -F "=" '{print $2}')" >> $GITHUB_ENV
+
+      - name: Pack Extension
+        id: pack_extension
+        uses: HaaLeo/publish-vscode-extension@v1
+        with:
+          dryRun: true
+          pat: "stub"
+
+      - name: Set Extension Filename to Environment Variable
+        run: echo "EXTENSION_FILENAME=$(basename '${{ steps.pack_extension.outputs.vsixPath }}')" >> $GITHUB_ENV
+
+      - name: Publish Extension to Visual Studio Code Marketplace
+        if: github.event_name != 'pull_request'
+        uses: HaaLeo/publish-vscode-extension@v1
+        with:
+          pat: ${{ secrets.VSCODE_MARKETPLACE_TOKEN }}
+          registryUrl: https://marketplace.visualstudio.com
+          extensionFile: "${{ steps.pack_extension.outputs.vsixPath }}"
+
+      - name: Create Draft Release
+        if: github.event_name == 'push'
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v${{ env.PACKAGE_VERSION }}"
+          release_name: "Version ${{ env.PACKAGE_VERSION }}"
+          draft: true
+          prerelease: false
+
+      - name: Upload Extension File to Draft Release
+        if: github.event_name == 'push'
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: "${{ steps.pack_extension.outputs.vsixPath }}"
+          asset_name: "${{ env.EXTENSION_FILENAME }}"
+          asset_content_type: application/zip
+
+      - name: Publish Draft Release
+        if: github.event_name == 'push'
+        uses: eregon/publish-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          release_id: ${{ steps.create_release.outputs.id }}
