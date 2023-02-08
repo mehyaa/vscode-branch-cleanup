@@ -78,7 +78,7 @@ function gitCommand(cmd: string, cwd: string): Promise<string> {
     child.stderr.on('error', data => (result += data.toString()));
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    child.on('close', (code: number, signal: string) => {
+    child.on('close', (code: number) => {
       if (code === 0) {
         resolve(result);
       } else {
