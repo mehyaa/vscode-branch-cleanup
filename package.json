@@ -1,18 +1,18 @@
 {
   "name": "branch-cleanup",
   "displayName": "Branch Cleanup",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Remove all feature branches easily",
   "icon": "img/icon.png",
   "publisher": "mehyaa",
   "license": "MIT",
-  "homepage": "https://github.com/mehyaa/vscode-branch-cleaner",
+  "homepage": "https://github.com/mehyaa/vscode-branch-cleanup",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mehyaa/vscode-branch-cleaner.git"
+    "url": "https://github.com/mehyaa/vscode-branch-cleanup.git"
   },
   "bugs": {
-    "url": "https://github.com/mehyaa/vscode-branch-cleaner/issues"
+    "url": "https://github.com/mehyaa/vscode-branch-cleanup/issues"
   },
   "main": "dist/extension.js",
   "files": [
