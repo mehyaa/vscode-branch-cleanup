@@ -4,7 +4,7 @@ A cleaner for VSCode workspace git feature branches.
 
 ## Why you need this extension?
 
-VSCode tracks each workspace (opened folder or workspace file) in its workspace storage (a folder in `Code/User/workspaceStorage/<32-length ID>`) which has meta that points to the workspace. When you delete/rename/move workspace, the workspace storage will not update itself and from now on it becomes an unused meta. This extension lists and gives option to delete the unused workspace storage folders.
+When working with multiple branches deleting some or all feature branches may be a hustle. This extension simplify this task.
 
 ## Installation
 
