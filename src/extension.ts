@@ -1,6 +1,8 @@
-import { spawn } from 'child_process';
+import { resolve } from 'path';
 
 import { commands, window, workspace, ExtensionContext, QuickPickItem } from 'vscode';
+
+import { getGitRepos, getBranchNames, deleteBranch } from './utils';
 
 const defaultBranches = ['master', 'main'];
 
@@ -17,19 +19,29 @@ export function activate(context: ExtensionContext) {
     const branchesQuickPickItems: QuickPickItem[] = [];
 
     for (const workspaceFolder of workspaceFolders) {
-      const branchNames = await getBranchNames(workspaceFolder.uri.fsPath);
+      const path = resolve(workspaceFolder.uri.fsPath);
 
-      const workspaceBranchesQuickPickItems = branchNames.map(
-        branchName =>
-          ({
-            label: branchName,
-            description: defaultBranches.includes(branchName) ? 'Default branch' : '',
-            detail: workspaceFolder.uri.fsPath,
-            picked: !defaultBranches.includes(branchName)
-          } as QuickPickItem)
-      );
+      const repos = await getGitRepos(path);
 
-      branchesQuickPickItems.push(...workspaceBranchesQuickPickItems);
+      for (const repo of repos) {
+        try {
+          const branchNames = await getBranchNames(repo);
+
+          const quickPickItems = branchNames.map(
+            branchName =>
+              ({
+                label: branchName,
+                description: defaultBranches.includes(branchName) ? 'Default branch' : '',
+                detail: repo,
+                picked: !defaultBranches.includes(branchName)
+              } as QuickPickItem)
+          );
+
+          branchesQuickPickItems.push(...quickPickItems);
+        } catch (err) {
+          window.showErrorMessage(`Failed to get branches for ${repo}.\nError: ${err}`);
+        }
+      }
     }
 
     const selectedBranchesQuickPickItems = await window.showQuickPick(branchesQuickPickItems, {
@@ -43,13 +55,13 @@ export function activate(context: ExtensionContext) {
       return;
     }
 
-    for (const branchesQuickPickItem of selectedBranchesQuickPickItems) {
-      if (branchesQuickPickItem.label && branchesQuickPickItem.detail) {
+    for (const quickPickItem of selectedBranchesQuickPickItems) {
+      if (quickPickItem.label && quickPickItem.detail) {
         try {
-          await deleteBranch(branchesQuickPickItem.label, branchesQuickPickItem.detail);
+          await deleteBranch(quickPickItem.label, quickPickItem.detail);
         } catch (err) {
           window.showErrorMessage(
-            `Failed to delete branch ${branchesQuickPickItem.label} on ${branchesQuickPickItem.detail}.\nError: ${err}`
+            `Failed to delete branch ${quickPickItem.label} on ${quickPickItem.detail}.\nError: ${err}`
           );
         }
       }
@@ -60,45 +72,3 @@ export function activate(context: ExtensionContext) {
 }
 
 export function deactivate() {} // eslint-disable-line @typescript-eslint/no-empty-function
-
-function gitCommand(cmd: string, cwd: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const args = cmd
-      .split(' ')
-      .filter(item => item !== '')
-      .map(item => item.trim());
-
-    const child = spawn('git', args, { cwd });
-
-    let result = '';
-
-    child.stdout.on('data', data => (result += data.toString()));
-    child.stdout.on('error', data => (result += data.toString()));
-    child.stderr.on('data', data => (result += data.toString()));
-    child.stderr.on('error', data => (result += data.toString()));
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    child.on('close', (code: number) => {
-      if (code === 0) {
-        resolve(result);
-      } else {
-        reject(new Error(result));
-      }
-    });
-  });
-}
-
-function getBranchNames(cwd: string): Promise<string[]> {
-  return gitCommand('branch', cwd).then(result => {
-    const branchNames = result
-      .split('\n')
-      .map(item => (item.indexOf('*') === 0 ? item.substring(2).trim() : item.trim()))
-      .filter(Boolean);
-
-    return branchNames;
-  });
-}
-
-function deleteBranch(branchName: string, cwd: string): Promise<string> {
-  return gitCommand(`branch -D ${branchName}`, cwd);
-}
