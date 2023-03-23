@@ -80,7 +80,7 @@ export function activate(context: ExtensionContext) {
           }`;
           const repos = failedToGetBranchesRepos.map(r => `${r.repo}: ${r.error}`);
 
-          await window.showErrorMessage(message, ...repos);
+          await window.showErrorMessage(message, { detail: repos.join('\n') });
         }
       }
     );
@@ -131,18 +131,18 @@ export function activate(context: ExtensionContext) {
 
     if (deletedBranches.length > 0) {
       const message = `Deleted ${deletedBranches.length} branch${deletedBranches.length > 1 ? 'es' : ''}`;
-      const branches = deletedBranches.map(b => `${b.branchName}: ${b.repo}`);
+      const branches = deletedBranches.map(b => `${b.repo}|${b.branchName}`);
 
-      await window.showInformationMessage(message, ...branches);
+      await window.showInformationMessage(message, { detail: branches.join('\n') });
     }
 
     if (failedToDeleteBranches.length > 0) {
       const message = `Failed to delete ${failedToDeleteBranches.length} branch${
         failedToDeleteBranches.length > 1 ? 'es' : ''
       }`;
-      const branches = failedToDeleteBranches.map(b => `${b.branchName}: ${b.repo} - ${b.error}`);
+      const branches = failedToDeleteBranches.map(b => `${b.repo}|${b.branchName}:  ${b.error}`);
 
-      await window.showErrorMessage(message, ...branches);
+      await window.showErrorMessage(message, { detail: branches.join('\n') });
     }
   });
 
