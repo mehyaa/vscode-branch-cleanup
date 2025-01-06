@@ -1,26 +1,35 @@
 import { resolve } from 'path';
 
-import { commands, window, workspace, ExtensionContext, QuickPickItem } from 'vscode';
+import {
+  commands,
+  window,
+  workspace,
+  ExtensionContext,
+  ProgressLocation,
+  QuickPick,
+  QuickPickItem,
+  ThemeIcon
+} from 'vscode';
 
 import { getGitRepos, getBranchNames, deleteBranch } from './utils';
 
 const defaultBranches = ['master', 'main'];
 
-interface FailedToGetBranchesRepo {
+type FailedToGetBranchesRepo = {
   repo: string;
   error: string;
-}
+};
 
-interface DeletedBranch {
+type DeletedBranch = {
   repo: string;
   branchName: string;
-}
+};
 
-interface FailedToDeleteBranch {
+type FailedToDeleteBranch = {
   repo: string;
   branchName: string;
   error: string;
-}
+};
 
 export function activate(context: ExtensionContext) {
   const disposable = commands.registerCommand('branch-cleanup.run', async () => {
@@ -36,8 +45,8 @@ export function activate(context: ExtensionContext) {
 
     await window.withProgress(
       {
-        location: 15, // Notification
-        title: 'Getting branches',
+        location: ProgressLocation.Notification,
+        title: 'Collecting branches',
         cancellable: false
       },
       async () => {
@@ -58,7 +67,8 @@ export function activate(context: ExtensionContext) {
                     label: branchName,
                     description: defaultBranches.includes(branchName) ? 'Default branch' : '',
                     detail: repo,
-                    picked: !defaultBranches.includes(branchName)
+                    picked: !defaultBranches.includes(branchName),
+                    iconPath: new ThemeIcon('git-branch')
                   } as QuickPickItem)
               );
 
@@ -85,65 +95,80 @@ export function activate(context: ExtensionContext) {
       }
     );
 
-    const selectedBranchesQuickPickItems = await window.showQuickPick(branchesQuickPickItems, {
-      canPickMany: true,
-      placeHolder: 'Select branches to delete'
-    });
+    const quickPick: QuickPick<QuickPickItem> = window.createQuickPick();
+    quickPick.title = 'Select branches to delete';
+    quickPick.placeholder = 'Type to filter branches';
+    quickPick.matchOnDescription = true;
+    quickPick.matchOnDetail = true;
+    quickPick.canSelectMany = true;
+    quickPick.items = branchesQuickPickItems;
+    quickPick.ignoreFocusOut = false;
+    quickPick.selectedItems = branchesQuickPickItems.filter(item => item.picked);
 
-    if (!selectedBranchesQuickPickItems || selectedBranchesQuickPickItems.length === 0) {
-      window.showInformationMessage('No branches selected');
+    quickPick.show();
 
-      return;
-    }
+    quickPick.onDidAccept(async () => {
+      quickPick.hide();
 
-    const deletedBranches: DeletedBranch[] = [];
-    const failedToDeleteBranches: FailedToDeleteBranch[] = [];
+      const selectedBranchesQuickPickItems = quickPick.selectedItems;
 
-    await window.withProgress(
-      {
-        location: 15, // Notification
-        title: 'Deleting branches',
-        cancellable: false
-      },
-      async () => {
-        for (const quickPickItem of selectedBranchesQuickPickItems) {
-          if (quickPickItem.label && quickPickItem.detail) {
-            try {
-              await deleteBranch(quickPickItem.label, quickPickItem.detail);
+      if (!selectedBranchesQuickPickItems || selectedBranchesQuickPickItems.length === 0) {
+        await window.showInformationMessage('No branches selected');
 
-              deletedBranches.push({
-                repo: quickPickItem.detail,
-                branchName: quickPickItem.label
-              });
-            } catch (err) {
-              const error = err instanceof Error ? err.message : err?.toString() ?? '';
+        return;
+      }
 
-              failedToDeleteBranches.push({
-                repo: quickPickItem.detail,
-                branchName: quickPickItem.label,
-                error
-              });
+      const deletedBranches: DeletedBranch[] = [];
+      const failedToDeleteBranches: FailedToDeleteBranch[] = [];
+
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'Deleting branches',
+          cancellable: false
+        },
+        async () => {
+          for (const quickPickItem of selectedBranchesQuickPickItems) {
+            if (quickPickItem.label && quickPickItem.detail) {
+              try {
+                await deleteBranch(quickPickItem.label, quickPickItem.detail);
+
+                deletedBranches.push({
+                  repo: quickPickItem.detail,
+                  branchName: quickPickItem.label
+                });
+              } catch (err) {
+                const error = err instanceof Error ? err.message : err?.toString() ?? '';
+
+                failedToDeleteBranches.push({
+                  repo: quickPickItem.detail,
+                  branchName: quickPickItem.label,
+                  error
+                });
+              }
             }
           }
         }
+      );
+
+      if (deletedBranches.length > 0) {
+        const message = `Deleted ${deletedBranches.length} branch${deletedBranches.length > 1 ? 'es' : ''}`;
+        const branches = deletedBranches.map(b => `${b.repo}|${b.branchName}`);
+
+        await window.showInformationMessage(message, { detail: branches.join('\n') });
       }
-    );
 
-    if (deletedBranches.length > 0) {
-      const message = `Deleted ${deletedBranches.length} branch${deletedBranches.length > 1 ? 'es' : ''}`;
-      const branches = deletedBranches.map(b => `${b.repo}|${b.branchName}`);
+      if (failedToDeleteBranches.length > 0) {
+        const message = `Failed to delete ${failedToDeleteBranches.length} branch${
+          failedToDeleteBranches.length > 1 ? 'es' : ''
+        }`;
+        const branches = failedToDeleteBranches.map(b => `${b.repo}|${b.branchName}:  ${b.error}`);
 
-      await window.showInformationMessage(message, { detail: branches.join('\n') });
-    }
+        await window.showErrorMessage(message, { detail: branches.join('\n') });
+      }
+    });
 
-    if (failedToDeleteBranches.length > 0) {
-      const message = `Failed to delete ${failedToDeleteBranches.length} branch${
-        failedToDeleteBranches.length > 1 ? 'es' : ''
-      }`;
-      const branches = failedToDeleteBranches.map(b => `${b.repo}|${b.branchName}:  ${b.error}`);
-
-      await window.showErrorMessage(message, { detail: branches.join('\n') });
-    }
+    quickPick.onDidHide(() => quickPick.dispose());
   });
 
   context.subscriptions.push(disposable);

@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
-export function getSubDirectories(source: string): string[] {
+export function getSubDirectories(source: string): Array<string> {
   return readdirSync(source, { withFileTypes: true })
     .filter(dir => dir.isDirectory())
     .map(dir => join(source, dir.name));
@@ -24,7 +24,6 @@ export function gitCommand(cmd: string, cwd: string): Promise<string> {
     child.stderr.on('data', data => (result += data.toString()));
     child.stderr.on('error', data => (result += data.toString()));
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     child.on('close', (code: number) => {
       if (code === 0) {
         resolve(result);
@@ -35,23 +34,24 @@ export function gitCommand(cmd: string, cwd: string): Promise<string> {
   });
 }
 
-export async function getGitRepos(cwd: string): Promise<string[]> {
+export async function getGitRepos(cwd: string): Promise<Array<string>> {
   try {
     const result = await gitCommand('rev-parse --show-toplevel', cwd);
+
     return [result.trim()];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (err: any) {
-    if (err?.message?.indexOf('not a git repository') >= 0) {
+  } catch (err: unknown) {
+    if ((err as Error)?.message?.indexOf('not a git repository') >= 0) {
       const subDirectories = getSubDirectories(cwd);
       const promises = subDirectories.map(getGitRepos);
       const results = await Promise.all(promises);
-      return results.flat(Infinity) as string[];
+      return results.flat(Infinity) as Array<string>;
     }
+
     return [];
   }
 }
 
-export async function getBranchNames(cwd: string): Promise<string[]> {
+export async function getBranchNames(cwd: string): Promise<Array<string>> {
   const result = await gitCommand('branch', cwd);
 
   return result
@@ -60,6 +60,6 @@ export async function getBranchNames(cwd: string): Promise<string[]> {
     .filter(Boolean);
 }
 
-export async function deleteBranch(branchName: string, cwd: string): Promise<string> {
-  return await gitCommand(`branch -D ${branchName}`, cwd);
+export function deleteBranch(branchName: string, cwd: string): Promise<string> {
+  return gitCommand(`branch -D ${branchName}`, cwd);
 }
