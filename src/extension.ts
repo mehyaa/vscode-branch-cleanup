@@ -14,12 +14,10 @@ import {
 
 import { getGitRepos, getBranchNames, deleteBranch } from './utils';
 
-const defaultBranches: Array<string> = ['master', 'main'];
-const protectedBranches: Array<string> = [];
-
 type BranchQuickPickItem = QuickPickItem & {
   repo: string;
   branchName: string;
+  protected: boolean;
 };
 
 type FailedToGetBranchesRepo = {
@@ -49,7 +47,14 @@ export function activate(context: ExtensionContext) {
         return;
       }
 
-      const branchesQuickPickItems: Array<QuickPickItem> = [];
+      const config = workspace.getConfiguration('branchCleanup');
+
+      const defaultBranches: string[] = config.get<Array<string>>('defaultBranches', ['master', 'main']);
+      const protectedBranches: string[] = config.get<Array<string>>('protectedBranches', []);
+
+      const protectedBranchRegexes = protectedBranches.map(protectedBranch => new RegExp(protectedBranch));
+
+      const quickPickItems: Array<QuickPickItem> = [];
 
       await window.withProgress(
         {
@@ -78,29 +83,26 @@ export function activate(context: ExtensionContext) {
                 }
 
                 if (multiRepos) {
-                  branchesQuickPickItems.push({
+                  quickPickItems.push({
                     label: basename(repo),
                     kind: QuickPickItemKind.Separator
                   });
                 }
 
-                const quickPickItems = branchNames.map(
-                  branchName =>
-                    ({
-                      repo,
-                      branchName,
-                      label: branchName,
-                      description: defaultBranches.includes(branchName)
-                        ? 'Default branch'
-                        : protectedBranches.includes(branchName)
-                        ? 'Protected branch'
-                        : '',
-                      picked: !defaultBranches.includes(branchName),
-                      iconPath: new ThemeIcon('git-branch')
-                    } as BranchQuickPickItem)
-                );
+                for (const branchName of branchNames) {
+                  const isDefaultBranch = defaultBranches.includes(branchName);
+                  const isProtectedBranch = protectedBranchRegexes.some(regex => regex.test(branchName));
 
-                branchesQuickPickItems.push(...quickPickItems);
+                  quickPickItems.push({
+                    repo,
+                    branchName,
+                    protected: isDefaultBranch || isProtectedBranch,
+                    label: branchName,
+                    description: isDefaultBranch ? 'Default branch' : isProtectedBranch ? 'Protected branch' : '',
+                    picked: !isDefaultBranch && !isProtectedBranch,
+                    iconPath: new ThemeIcon('git-branch')
+                  } as BranchQuickPickItem);
+                }
               } catch (err) {
                 const error = err instanceof Error ? err.message : err?.toString() ?? '';
 
@@ -125,19 +127,27 @@ export function activate(context: ExtensionContext) {
       quickPick.placeholder = 'Type to filter branches';
       quickPick.matchOnDescription = true;
       quickPick.matchOnDetail = true;
-      quickPick.canSelectMany = true;
-      quickPick.items = branchesQuickPickItems;
       quickPick.ignoreFocusOut = false;
-      quickPick.selectedItems = branchesQuickPickItems.filter(item => item.picked);
+      quickPick.canSelectMany = true;
+      quickPick.items = quickPickItems;
+      quickPick.selectedItems = quickPickItems.filter(item => item.picked);
 
       quickPick.show();
 
       quickPick.onDidAccept(async () => {
         quickPick.hide();
 
-        const selectedBranchesQuickPickItems = quickPick.selectedItems as Array<BranchQuickPickItem>;
+        const selectedQuickPickItems = quickPick.selectedItems as Array<BranchQuickPickItem>;
 
-        const selectedRepos = Array.from(new Set(selectedBranchesQuickPickItems.map(item => item.repo)));
+        const protectedQuickPickItems = selectedQuickPickItems.filter(item => item.protected);
+
+        if (protectedQuickPickItems.length > 0) {
+          await window.showErrorMessage('Default and protected branches cannot be deleted');
+
+          return;
+        }
+
+        const selectedRepos = Array.from(new Set(selectedQuickPickItems.map(item => item.repo)));
 
         let message: string;
 
@@ -146,7 +156,7 @@ export function activate(context: ExtensionContext) {
             .map(repo => {
               let repoBranches = `${basename(repo)}:\n`;
 
-              repoBranches += selectedBranchesQuickPickItems
+              repoBranches += selectedQuickPickItems
                 .filter(item => item.repo === repo)
                 .map(item => `▪️ ${item.branchName}`)
                 .join('\n');
@@ -155,11 +165,11 @@ export function activate(context: ExtensionContext) {
             })
             .join('\n\n');
         } else {
-          message = selectedBranchesQuickPickItems.map(item => `▪️ ${item.branchName}`).join('\n');
+          message = selectedQuickPickItems.map(item => `▪️ ${item.branchName}`).join('\n');
         }
 
         const answer = await window.showInformationMessage(
-          'Following branches will be deleted',
+          'Following branch(es) will be deleted',
           {
             modal: true,
             detail: message
@@ -171,7 +181,7 @@ export function activate(context: ExtensionContext) {
           return;
         }
 
-        if (!selectedBranchesQuickPickItems || selectedBranchesQuickPickItems.length === 0) {
+        if (!selectedQuickPickItems || selectedQuickPickItems.length === 0) {
           await window.showInformationMessage('No branches selected');
 
           return;
@@ -187,7 +197,7 @@ export function activate(context: ExtensionContext) {
             cancellable: false
           },
           async () => {
-            for (const quickPickItem of selectedBranchesQuickPickItems) {
+            for (const quickPickItem of selectedQuickPickItems) {
               if (quickPickItem.repo && quickPickItem.branchName) {
                 try {
                   await deleteBranch(quickPickItem.branchName, quickPickItem.repo);
