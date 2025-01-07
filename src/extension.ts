@@ -1,4 +1,4 @@
-import { resolve } from 'path';
+import { resolve, basename } from 'path';
 
 import {
   commands,
@@ -8,12 +8,19 @@ import {
   ProgressLocation,
   QuickPick,
   QuickPickItem,
+  QuickPickItemKind,
   ThemeIcon
 } from 'vscode';
 
 import { getGitRepos, getBranchNames, deleteBranch } from './utils';
 
-const defaultBranches = ['master', 'main'];
+const defaultBranches: Array<string> = ['master', 'main'];
+const protectedBranches: Array<string> = [];
+
+type BranchQuickPickItem = QuickPickItem & {
+  repo: string;
+  branchName: string;
+};
 
 type FailedToGetBranchesRepo = {
   repo: string;
@@ -32,146 +39,197 @@ type FailedToDeleteBranch = {
 };
 
 export function activate(context: ExtensionContext) {
-  const disposable = commands.registerCommand('branch-cleanup.run', async () => {
-    const workspaceFolders = workspace.workspaceFolders;
+  context.subscriptions.push(
+    commands.registerCommand('branch-cleanup.run', async () => {
+      const workspaceFolders = workspace.workspaceFolders;
 
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      window.showErrorMessage('No workspace folder found');
-
-      return;
-    }
-
-    const branchesQuickPickItems: QuickPickItem[] = [];
-
-    await window.withProgress(
-      {
-        location: ProgressLocation.Notification,
-        title: 'Collecting branches',
-        cancellable: false
-      },
-      async () => {
-        const failedToGetBranchesRepos: FailedToGetBranchesRepo[] = [];
-
-        for (const workspaceFolder of workspaceFolders) {
-          const path = resolve(workspaceFolder.uri.fsPath);
-
-          const repos = await getGitRepos(path);
-
-          for (const repo of repos) {
-            try {
-              const branchNames = await getBranchNames(repo);
-
-              const quickPickItems = branchNames.map(
-                branchName =>
-                  ({
-                    label: branchName,
-                    description: defaultBranches.includes(branchName) ? 'Default branch' : '',
-                    detail: repo,
-                    picked: !defaultBranches.includes(branchName),
-                    iconPath: new ThemeIcon('git-branch')
-                  } as QuickPickItem)
-              );
-
-              branchesQuickPickItems.push(...quickPickItems);
-            } catch (err) {
-              const error = err instanceof Error ? err.message : err?.toString() ?? '';
-
-              failedToGetBranchesRepos.push({
-                repo,
-                error
-              });
-            }
-          }
-        }
-
-        if (failedToGetBranchesRepos.length > 0) {
-          const message = `Failed to get branches for ${failedToGetBranchesRepos.length} repo${
-            failedToGetBranchesRepos.length > 1 ? 's' : ''
-          }`;
-          const repos = failedToGetBranchesRepos.map(r => `${r.repo}: ${r.error}`);
-
-          await window.showErrorMessage(message, { detail: repos.join('\n') });
-        }
-      }
-    );
-
-    const quickPick: QuickPick<QuickPickItem> = window.createQuickPick();
-    quickPick.title = 'Select branches to delete';
-    quickPick.placeholder = 'Type to filter branches';
-    quickPick.matchOnDescription = true;
-    quickPick.matchOnDetail = true;
-    quickPick.canSelectMany = true;
-    quickPick.items = branchesQuickPickItems;
-    quickPick.ignoreFocusOut = false;
-    quickPick.selectedItems = branchesQuickPickItems.filter(item => item.picked);
-
-    quickPick.show();
-
-    quickPick.onDidAccept(async () => {
-      quickPick.hide();
-
-      const selectedBranchesQuickPickItems = quickPick.selectedItems;
-
-      if (!selectedBranchesQuickPickItems || selectedBranchesQuickPickItems.length === 0) {
-        await window.showInformationMessage('No branches selected');
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        window.showErrorMessage('No workspace folder found');
 
         return;
       }
 
-      const deletedBranches: DeletedBranch[] = [];
-      const failedToDeleteBranches: FailedToDeleteBranch[] = [];
+      const branchesQuickPickItems: Array<QuickPickItem> = [];
 
       await window.withProgress(
         {
           location: ProgressLocation.Notification,
-          title: 'Deleting branches',
+          title: 'Collecting branches',
           cancellable: false
         },
         async () => {
-          for (const quickPickItem of selectedBranchesQuickPickItems) {
-            if (quickPickItem.label && quickPickItem.detail) {
-              try {
-                await deleteBranch(quickPickItem.label, quickPickItem.detail);
+          const failedToGetBranchesRepos: Array<FailedToGetBranchesRepo> = [];
 
-                deletedBranches.push({
-                  repo: quickPickItem.detail,
-                  branchName: quickPickItem.label
-                });
+          let multiRepos = workspaceFolders.length > 1;
+
+          for (const workspaceFolder of workspaceFolders) {
+            const path = resolve(workspaceFolder.uri.fsPath);
+
+            const repos = await getGitRepos(path);
+
+            multiRepos ||= repos.length > 1;
+
+            for (const repo of repos) {
+              try {
+                const branchNames = await getBranchNames(repo);
+
+                if (branchNames.length === 0) {
+                  continue;
+                }
+
+                if (multiRepos) {
+                  branchesQuickPickItems.push({
+                    label: basename(repo),
+                    kind: QuickPickItemKind.Separator
+                  });
+                }
+
+                const quickPickItems = branchNames.map(
+                  branchName =>
+                    ({
+                      repo,
+                      branchName,
+                      label: branchName,
+                      description: defaultBranches.includes(branchName)
+                        ? 'Default branch'
+                        : protectedBranches.includes(branchName)
+                        ? 'Protected branch'
+                        : '',
+                      picked: !defaultBranches.includes(branchName),
+                      iconPath: new ThemeIcon('git-branch')
+                    } as BranchQuickPickItem)
+                );
+
+                branchesQuickPickItems.push(...quickPickItems);
               } catch (err) {
                 const error = err instanceof Error ? err.message : err?.toString() ?? '';
 
-                failedToDeleteBranches.push({
-                  repo: quickPickItem.detail,
-                  branchName: quickPickItem.label,
+                failedToGetBranchesRepos.push({
+                  repo,
                   error
                 });
               }
             }
           }
+
+          for (const failedToGetBranchesRepo of failedToGetBranchesRepos) {
+            const message = `Failed to get branches for ${failedToGetBranchesRepo.repo}: ${failedToGetBranchesRepo.error}`;
+
+            await window.showErrorMessage(message);
+          }
         }
       );
 
-      if (deletedBranches.length > 0) {
-        const message = `Deleted ${deletedBranches.length} branch${deletedBranches.length > 1 ? 'es' : ''}`;
-        const branches = deletedBranches.map(b => `${b.repo}|${b.branchName}`);
+      const quickPick: QuickPick<QuickPickItem> = window.createQuickPick();
+      quickPick.title = 'Select branches to delete';
+      quickPick.placeholder = 'Type to filter branches';
+      quickPick.matchOnDescription = true;
+      quickPick.matchOnDetail = true;
+      quickPick.canSelectMany = true;
+      quickPick.items = branchesQuickPickItems;
+      quickPick.ignoreFocusOut = false;
+      quickPick.selectedItems = branchesQuickPickItems.filter(item => item.picked);
 
-        await window.showInformationMessage(message, { detail: branches.join('\n') });
-      }
+      quickPick.show();
 
-      if (failedToDeleteBranches.length > 0) {
-        const message = `Failed to delete ${failedToDeleteBranches.length} branch${
-          failedToDeleteBranches.length > 1 ? 'es' : ''
-        }`;
-        const branches = failedToDeleteBranches.map(b => `${b.repo}|${b.branchName}:  ${b.error}`);
+      quickPick.onDidAccept(async () => {
+        quickPick.hide();
 
-        await window.showErrorMessage(message, { detail: branches.join('\n') });
-      }
-    });
+        const selectedBranchesQuickPickItems = quickPick.selectedItems as Array<BranchQuickPickItem>;
 
-    quickPick.onDidHide(() => quickPick.dispose());
-  });
+        const selectedRepos = Array.from(new Set(selectedBranchesQuickPickItems.map(item => item.repo)));
 
-  context.subscriptions.push(disposable);
+        let message: string;
+
+        if (selectedRepos.length > 1) {
+          message = selectedRepos
+            .map(repo => {
+              let repoBranches = `${basename(repo)}:\n`;
+
+              repoBranches += selectedBranchesQuickPickItems
+                .filter(item => item.repo === repo)
+                .map(item => `▪️ ${item.branchName}`)
+                .join('\n');
+
+              return repoBranches;
+            })
+            .join('\n\n');
+        } else {
+          message = selectedBranchesQuickPickItems.map(item => `▪️ ${item.branchName}`).join('\n');
+        }
+
+        const answer = await window.showInformationMessage(
+          'Following branches will be deleted',
+          {
+            modal: true,
+            detail: message
+          },
+          'Delete'
+        );
+
+        if (answer !== 'Delete') {
+          return;
+        }
+
+        if (!selectedBranchesQuickPickItems || selectedBranchesQuickPickItems.length === 0) {
+          await window.showInformationMessage('No branches selected');
+
+          return;
+        }
+
+        const deletedBranches: Array<DeletedBranch> = [];
+        const failedToDeleteBranches: Array<FailedToDeleteBranch> = [];
+
+        await window.withProgress(
+          {
+            location: ProgressLocation.Notification,
+            title: 'Deleting branches',
+            cancellable: false
+          },
+          async () => {
+            for (const quickPickItem of selectedBranchesQuickPickItems) {
+              if (quickPickItem.repo && quickPickItem.branchName) {
+                try {
+                  await deleteBranch(quickPickItem.branchName, quickPickItem.repo);
+
+                  deletedBranches.push({
+                    repo: quickPickItem.repo,
+                    branchName: quickPickItem.branchName
+                  });
+                } catch (err) {
+                  const error = err instanceof Error ? err.message : err?.toString() ?? '';
+
+                  failedToDeleteBranches.push({
+                    repo: quickPickItem.repo,
+                    branchName: quickPickItem.branchName,
+                    error
+                  });
+                }
+              }
+            }
+          }
+        );
+
+        if (deletedBranches.length > 0) {
+          const branches = deletedBranches.map(b => `${b.branchName} in ${b.repo}`);
+
+          const message = `Branch${deletedBranches.length > 1 ? 'es' : ''} ${branches.join(', ')} ${
+            deletedBranches.length > 1 ? 'are' : 'is'
+          } deleted successfully`;
+
+          await window.showInformationMessage(message);
+        }
+
+        for (const failedToDeleteBranch of failedToDeleteBranches) {
+          const message = `Failed to delete branch ${failedToDeleteBranch.branchName} in ${failedToDeleteBranch.repo}: ${failedToDeleteBranch.error}`;
+
+          await window.showErrorMessage(message);
+        }
+      });
+
+      quickPick.onDidHide(() => quickPick.dispose());
+    })
+  );
 }
 
 export function deactivate() {} // eslint-disable-line @typescript-eslint/no-empty-function

@@ -1,7 +1,7 @@
 {
   "name": "branch-cleanup",
   "displayName": "Branch Cleanup",
-  "version": "1.2.0",
+  "version": "1.2.5",
   "description": "Remove all feature branches easily",
   "icon": "img/icon.png",
   "publisher": "mehyaa",
